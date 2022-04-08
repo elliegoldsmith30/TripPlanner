@@ -1,0 +1,301 @@
+#lang dssl2
+ 
+
+let eight_principles = ["Know your rights.",
+"Acknowledge your sources.",
+"Protect your work.",
+"Avoid suspicion.",
+"Do your own work.",
+"Never falsify a record or permit another person to do so.",
+"Never fabricate data, citations, or experimental results.",
+"Always tell the truth when discussing your work with your instructor."]
+ 
+# Final project: Trip Planner
+#
+# ** You must work on your own for this assignment. **
+ 
+# Your program will most likely need a number of data structures, many of
+# which you've implemented in previous homeworks.
+# We have provided you with compiled versions of homework 3, 4, and 5 solutions.
+# You can import them as described in the handout.
+# Be sure to extract `project-lib.zip` is the same directory as this file.
+# You may also import libraries from the DSSL2 standard library (e.g., cons,
+# array, etc.).
+# Any other code (e.g., from lectures) you wish to use must be copied to this
+# file.
+ 
+import cons
+import sbox_hash
+import 'project-lib/dictionaries.rkt'
+import 'project-lib/binheap.rkt'
+import 'project-lib/graph.rkt'
+ 
+ 
+ 
+struct position:
+    let lat
+    let long
+ 
+struct poi:
+    let posit
+    let category
+    let name
+ 
+struct segment:
+    let p1
+    let p2
+    let dist
+    
+struct connect:
+    let distance
+    let point_of
+### Basic Vocabulary Types ###
+ 
+#  - Latitudes and longitudes are numbers:
+let Lat?  = num?
+let Lon?  = num?
+#  - Point-of-interest categories and names are strings:
+let Cat?  = str?
+let Name? = str?
+ 
+# ListC[T] is a list of `T`s (linear time):
+let ListC = Cons.ListC
+ 
+# List of unspecified element type (constant time):
+let List? = Cons.list?
+ 
+ 
+### Input Types ###
+ 
+#  - a SegmentVector  is VecC[SegmentRecord]
+#  - a PointVector    is VecC[PointRecord]
+# where
+#  - a SegmentRecord  is [Lat?, Lon?, Lat?, Lon?]
+#  - a PointRecord    is [Lat?, Lon?, Cat?, Name?]
+ 
+ 
+### Output Types ###
+ 
+#  - a NearbyList     is ListC[PointRecord]; i.e., one of:
+#                       - None
+#                       - cons(PointRecord, NearbyList)
+#  - a PositionList   is ListC[Position]; i.e., one of:
+#                       - None
+#                       - cons(Position, PositionList)
+# where
+#  - a PointRecord    is [Lat?, Lon?, Cat?, Name?]  (as above)
+#  - a Position       is [Lat?, Lon?]
+ 
+ 
+# Interface for trip routing and searching:
+interface TRIP_PLANNER:
+    # Finds the shortest route, if any, from the given source position
+    # (latitude and longitude) to the point-of-interest with the given
+    # name. (Returns the empty list (`None`) if no path can be found.)
+    def find_route(
+            self,
+            src_lat:  Lat?,     # starting latitude
+            src_lon:  Lon?,     # starting longitude
+            dst_name: Name?     # name of goal
+        )   ->        List?     # path to goal (PositionList)
+ 
+    # Finds no more than `n` points-of-interest of the given category
+    # nearest to the source position. (Ties for nearest are broken
+    # arbitrarily.)
+    def find_nearby(
+            self,
+            src_lat:  Lat?,     # starting latitude
+            src_lon:  Lon?,     # starting longitude
+            dst_cat:  Cat?,     # point-of-interest category
+            n:        nat?      # maximum number of results
+        )   ->        List?     # list of nearby POIs (NearbyList)
+ 
+ 
+class TripPlanner (TRIP_PLANNER):
+    #Arrays:
+    let roads
+    # vector of segments which are a struct that holds two positions and their distances 
+    let points
+    # vector of pois which are a struct that holds a point of interest with its position, category, and name
+    #Graphs:
+    let g1
+    # WU graph with the roads as vertices and their distances as weights
+    #Dictionaries:
+    let vertices_to_num
+    # HashTable that takes all of the vertices of the graph and their vertex number
+    let n_to_pos
+    # HashTable that takes the name and returns its position 
+    let num_to_vertices
+    #HashTable that takes a given number in the graph and returns its position
+    let pos_to_poi
+    #HashTable that takes a given number in the graph and returns its poi
+ 
+    def __init__(self, road_segments, pois):
+        self.roads = [None; road_segments.len()]
+        self.points = [None; pois.len()]
+ 
+ 
+        let distance
+        let r1
+        let r2    
+        for i in range(road_segments.len()):
+            r1 = position(road_segments[i][0], road_segments[i][1])
+            r2 = position(road_segments[i][2], road_segments[i][3])
+            distance = ((r2.lat-r1.lat)**2 + (r2.long- r1.long)**2).sqrt()
+            self.roads[i] = segment(r1,r2,distance)
+ 
+        for j in range(pois.len()):
+            self.points[j] = poi(position(pois[j][0], pois[j][1]), pois[j][2], pois[j][3])
+ 
+        self.n_to_pos = HashTable(pois.len(), make_sbox_hash())       
+        for h in range(pois.len()):
+            self.n_to_pos.put(self.points[h].name, self.points[h].posit)
+           
+ 
+ 
+        self.vertices_to_num = HashTable(road_segments.len()*2 + pois.len(), make_sbox_hash())
+        self.num_to_vertices = HashTable(road_segments.len()*2 + pois.len(), make_sbox_hash())
+        let y = 0
+        for x in range(self.roads.len()):
+            if self.vertices_to_num.mem?(self.roads[x].p1) == False:
+                self.vertices_to_num.put(self.roads[x].p1, y)
+                self.num_to_vertices.put(y, self.roads[x].p1) 
+                y = y +1
+            if self.vertices_to_num.mem?(self.roads[x].p2) == False:
+                self.vertices_to_num.put(self.roads[x].p2, y)
+                self.num_to_vertices.put(y, self.roads[x].p2)
+                y = y +1
+        for z in range(pois.len()):
+            if self.vertices_to_num.mem?(self.points[z].posit) == False:
+                self.vertices_to_num.put(self.points[z].posit, y)
+                self.num_to_vertices.put(y, self.points[z].posit)
+                y = y +1   
+ 
+    
+ 
+        self.pos_to_poi = HashTable(pois.len(), make_sbox_hash())   
+        for b in range(pois.len()):
+            if self.pos_to_poi.mem?(self.points[b].posit):
+                let one = self.pos_to_poi.get(self.points[b].posit)
+                let updated = [None; one.len() + 1]
+                for i in range(one.len()):
+                    updated[i] = one [i]
+                updated[one.len()] = self.points[b]
+                self.pos_to_poi.put(self.points[b].posit, updated)    
+            else:
+                self.pos_to_poi.put(self.points[b].posit, [self.points[b]])    
+       
+ 
+        self.g1 = WuGraph(self.vertices_to_num.len())
+        let id1
+        let id2
+        let w
+        for m in range(road_segments.len()):
+           id1 = self.vertices_to_num.get(self.roads[m].p1)
+           id2 = self.vertices_to_num.get(self.roads[m].p2)
+           w = self.roads[m].dist
+           self.g1.set_edge(id1, id2, w)
+ 
+    def dijkstra(self,graph, start):
+        let dist = [inf; graph.len()]
+        let pred = [None; graph.len()]
+        dist[start] = 0
+        let l = Cons.to_vec(graph.get_all_edges())
+        let todo = BinHeap(l.len(), λ x, y: dist[x] < dist[y])
+        let done = [False; graph.len()]
+        todo.insert(start)
+        while todo.len() != 0:
+            let v = todo.find_min()
+            todo.remove_min()
+            if done[v] == False:
+                done[v] = True
+                let adj = cons(1,graph.get_adjacent(v))
+                while adj.next != None:
+                    adj = adj.next 
+                    let d = graph.get_edge(v, adj.data)
+                    if (dist[v] + d )< dist[adj.data]:
+                        dist[adj.data] = dist[v] + d
+                        pred[adj.data] = v
+                        todo.insert(adj.data)    
+        let result = [dist, pred]    
+        return result  
+ 
+ 
+ 
+    def find_route(self, src_lat, src_lon, dst_name):
+        if self.n_to_pos.mem?(dst_name) == False:
+            return None
+        let goal_pos = self.n_to_pos.get(dst_name)
+        let goal = self.vertices_to_num.get(goal_pos)
+        let start_pos = position(src_lat, src_lon)   
+        let start = self.vertices_to_num.get(start_pos)
+        let result = self.dijkstra(self.g1,start)
+        let current_node = goal
+        let route = None
+        while current_node != start and self.num_to_vertices.mem?(current_node):
+            let p = self.num_to_vertices.get(current_node)
+            let r = [p.lat, p.long]   
+            let oldHead = route
+            route = cons(r, oldHead)
+            current_node = result[1][current_node]      
+        if current_node == start:
+            let old = route
+            route = cons([src_lat, src_lon], old)
+            return route
+        else:
+            return None
+ 
+    
+    
+    def dist_min(self, d1, d2) -> bool?:
+        if d1.distance < d2.distance:
+            return True
+        else:
+            return False
+    
+    def find_nearby(self, src_lat, src_lon, dst_cat, n):
+        let start_pos = position(src_lat, src_lon)   
+        let start = self.vertices_to_num.get(start_pos)
+        let result = self.dijkstra(self.g1,start)
+        let distances = [None;self.points.len()]
+        for l in range(distances.len()):
+            distances[l] = connect(inf,inf) 
+        let d = 0
+        for i in range(result[0].len()):
+            let p = self.num_to_vertices.get(i)
+            if self.pos_to_poi.mem?(p):
+                for x in range(self.pos_to_poi.get(p).len()):
+                    if self.pos_to_poi.get(p)[x].category == dst_cat:
+                        distances[d] = connect(result[0][i], self.pos_to_poi.get(p)[x])
+                        d = d +1       
+        heap_sort(distances, self.dist_min)
+        let ans = None
+        for j in range(n):
+            if distances[j].distance == inf:
+                return ans
+            let a = distances[j].point_of
+            let fin = [a.posit.lat, a.posit.long, a.category, a.name]
+            let oldHead = ans
+            ans = cons(fin, oldHead)
+        return ans
+#### ^^^ YOUR CODE HERE
+ 
+ 
+
+def my_first_example():
+    return TripPlanner([[0,0, 0,1], [0,0, 1,0]],
+                       [[0,0, "bar", "The Empty Bottle"],
+                        [0,1, "food", "Pelmeni"]])
+ 
+test 'My first find_route test':
+   assert my_first_example().find_route(0, 0, "Pelmeni") == \
+       cons([0,0], cons([0,1], None))
+ 
+test 'My first find_nearby test':
+    assert my_first_example().find_nearby(0, 0, "food", 1) == \
+        cons([0,1, "food", "Pelmeni"], None)
+              
+def example_from_handout():
+    pass        
+        
+#### ^^^ YOUR CODE HERE
