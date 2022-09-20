@@ -1,0 +1,101 @@
+#lang dssl2
+
+# Final project: Trip Planner
+#
+# ** You must work on your own for this assignment. **
+
+# Your program will most likely need a number of data structures, many of
+# which you've implemented in previous homeworks.
+# We have provided you with compiled versions of homework 3, 4, and 5 solutions.
+# You can import them as described in the handout.
+# Be sure to extract `project-lib.zip` is the same directory as this file.
+# You may also import libraries from the DSSL2 standard library (e.g., cons,
+# array, etc.).
+# Any other code (e.g., from lectures) you wish to use must be copied to this
+# file.
+
+import cons
+
+### Basic Vocabulary Types ###
+
+#  - Latitudes and longitudes are numbers:
+let Lat?  = num?
+let Lon?  = num?
+#  - Point-of-interest categories and names are strings:
+let Cat?  = str?
+let Name? = str?
+
+# ListC[T] is a list of `T`s (linear time):
+let ListC = Cons.ListC
+
+# List of unspecified element type (constant time):
+let List? = Cons.list?
+
+
+### Input Types ###
+
+#  - a SegmentVector  is VecC[SegmentRecord]
+#  - a PointVector    is VecC[PointRecord]
+# where
+#  - a SegmentRecord  is [Lat?, Lon?, Lat?, Lon?]
+#  - a PointRecord    is [Lat?, Lon?, Cat?, Name?]
+
+
+### Output Types ###
+
+#  - a NearbyList     is ListC[PointRecord]; i.e., one of:
+#                       - None
+#                       - cons(PointRecord, NearbyList)
+#  - a PositionList   is ListC[Position]; i.e., one of:
+#                       - None
+#                       - cons(Position, PositionList)
+# where
+#  - a PointRecord    is [Lat?, Lon?, Cat?, Name?]  (as above)
+#  - a Position       is [Lat?, Lon?]
+
+
+# Interface for trip routing and searching:
+interface TRIP_PLANNER:
+    # Finds the shortest route, if any, from the given source position
+    # (latitude and longitude) to the point-of-interest with the given
+    # name. (Returns the empty list (`None`) if no path can be found.)
+    def find_route(
+            self,
+            src_lat:  Lat?,     # starting latitude
+            src_lon:  Lon?,     # starting longitude
+            dst_name: Name?     # name of goal
+        )   ->        List?     # path to goal (PositionList)
+
+    # Finds no more than `n` points-of-interest of the given category
+    # nearest to the source position. (Ties for nearest are broken
+    # arbitrarily.)
+    def find_nearby(
+            self,
+            src_lat:  Lat?,     # starting latitude
+            src_lon:  Lon?,     # starting longitude
+            dst_cat:  Cat?,     # point-of-interest category
+            n:        nat?      # maximum number of results
+        )   ->        List?     # list of nearby POIs (NearbyList)
+
+
+class TripPlanner (TRIP_PLANNER):
+    pass
+#### ^^^ YOUR CODE HERE
+
+
+def my_first_example():
+    return TripPlanner([[0,0, 0,1], [0,0, 1,0]],
+                       [[0,0, "bar", "The Empty Bottle"],
+                        [0,1, "food", "Pelmeni"]])
+
+test 'My first find_route test':
+   assert my_first_example().find_route(0, 0, "Pelmeni") == \
+       cons([0,0], cons([0,1], None))
+
+test 'My first find_nearby test':
+    assert my_first_example().find_nearby(0, 0, "food", 1) == \
+        cons([0,1, "food", "Pelmeni"], None)
+
+def example_from_handout():
+    pass
+#### ^^^ YOUR CODE HERE
